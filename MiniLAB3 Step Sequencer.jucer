@@ -14,42 +14,44 @@
             file="Source/PluginEditor.cpp"/>
       <FILE id="yx7Wbh" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
     </GROUP>
-    <FILE id="u0I6la" name="MainBackground.png" compile="0" resource="1"
-          file="../MainBackground.png"/>
-    <FILE id="Vn9M10" name="active_track_1.png" compile="0" resource="1"
-          file="../active_track_1.png"/>
-    <FILE id="uityUi" name="active_track_2.png" compile="0" resource="1"
-          file="../active_track_2.png"/>
-    <FILE id="gZSOrP" name="active_track_3.png" compile="0" resource="1"
-          file="../active_track_3.png"/>
-    <FILE id="I8cHSJ" name="active_track_4.png" compile="0" resource="1"
-          file="../active_track_4.png"/>
-    <FILE id="ZNSjr3" name="active_track_5.png" compile="0" resource="1"
-          file="../active_track_5.png"/>
-    <FILE id="RZmWAO" name="active_track_6.png" compile="0" resource="1"
-          file="../active_track_6.png"/>
-    <FILE id="Ll2WCJ" name="active_track_7.png" compile="0" resource="1"
-          file="../active_track_7.png"/>
-    <FILE id="s0O2eu" name="active_track_8.png" compile="0" resource="1"
-          file="../active_track_8.png"/>
-    <FILE id="iiKxS8" name="active_track_9.png" compile="0" resource="1"
-          file="../active_track_9.png"/>
-    <FILE id="AtlBiX" name="active_track_10.png" compile="0" resource="1"
-          file="../active_track_10.png"/>
-    <FILE id="fe0wHp" name="active_track_11.png" compile="0" resource="1"
-          file="../active_track_11.png"/>
-    <FILE id="R3SScZ" name="active_track_12.png" compile="0" resource="1"
-          file="../active_track_12.png"/>
-    <FILE id="MTztU5" name="active_track_13.png" compile="0" resource="1"
-          file="../active_track_13.png"/>
-    <FILE id="s8hsuY" name="active_track_14.png" compile="0" resource="1"
-          file="../active_track_14.png"/>
-    <FILE id="KcqM5q" name="active_track_15.png" compile="0" resource="1"
-          file="../active_track_15.png"/>
-    <FILE id="zU06wy" name="active_track_16.png" compile="0" resource="1"
-          file="../active_track_16.png"/>
-    <FILE id="iLy1pk" name="bg_dark.png" compile="0" resource="1" file="../bg_dark.png"/>
-    <FILE id="cXEJLZ" name="bg_light.png" compile="0" resource="1" file="../bg_light.png"/>
+    <GROUP id="{6DC98CE1-D936-C4FC-6B95-40FB02275663}" name="UI">
+      <FILE id="McuCxt" name="active_track_1.png" compile="0" resource="1"
+            file="UI/active_track_1.png"/>
+      <FILE id="PxApuB" name="active_track_2.png" compile="0" resource="1"
+            file="UI/active_track_2.png"/>
+      <FILE id="L4i7Jj" name="active_track_3.png" compile="0" resource="1"
+            file="UI/active_track_3.png"/>
+      <FILE id="shil0j" name="active_track_4.png" compile="0" resource="1"
+            file="UI/active_track_4.png"/>
+      <FILE id="yjY6VP" name="active_track_5.png" compile="0" resource="1"
+            file="UI/active_track_5.png"/>
+      <FILE id="ETfgME" name="active_track_6.png" compile="0" resource="1"
+            file="UI/active_track_6.png"/>
+      <FILE id="gMkGv7" name="active_track_7.png" compile="0" resource="1"
+            file="UI/active_track_7.png"/>
+      <FILE id="DZthfY" name="active_track_8.png" compile="0" resource="1"
+            file="UI/active_track_8.png"/>
+      <FILE id="xYNcnB" name="active_track_9.png" compile="0" resource="1"
+            file="UI/active_track_9.png"/>
+      <FILE id="uFLUtl" name="active_track_10.png" compile="0" resource="1"
+            file="UI/active_track_10.png"/>
+      <FILE id="bnhrmX" name="active_track_11.png" compile="0" resource="1"
+            file="UI/active_track_11.png"/>
+      <FILE id="EhdMzw" name="active_track_12.png" compile="0" resource="1"
+            file="UI/active_track_12.png"/>
+      <FILE id="ViQcZA" name="active_track_13.png" compile="0" resource="1"
+            file="UI/active_track_13.png"/>
+      <FILE id="ZLThht" name="active_track_14.png" compile="0" resource="1"
+            file="UI/active_track_14.png"/>
+      <FILE id="RF7TO5" name="active_track_15.png" compile="0" resource="1"
+            file="UI/active_track_15.png"/>
+      <FILE id="XQ1aYs" name="active_track_16.png" compile="0" resource="1"
+            file="UI/active_track_16.png"/>
+      <FILE id="f2QwAD" name="bg_dark.png" compile="0" resource="1" file="UI/bg_dark.png"/>
+      <FILE id="ElVVSe" name="bg_light.png" compile="0" resource="1" file="UI/bg_light.png"/>
+      <FILE id="cMhLsg" name="MainBackground.png" compile="0" resource="1"
+            file="UI/MainBackground.png"/>
+    </GROUP>
   </MAINGROUP>
   <MODULES>
     <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
