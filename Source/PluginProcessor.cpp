@@ -1,14 +1,36 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+// ==============================================================================
+// HARDWARE COMMUNICATION HELPERS
+// ==============================================================================
+
+/**
+ * Generates the specific SysEx message required to write a color to the MiniLab 3's Edit Buffer.
+ * Header: 0xF0, 0x00, 0x20, 0x6B, 0x7F, 0x42
+ * Command: 0x02 (Write), 0x01 (Edit Buffer), 0x16 (LED)
+ */
 static juce::MidiMessage makeMiniLab3PadColorSysex(uint8_t padIdx, uint8_t r, uint8_t g, uint8_t b) {
-    const uint8_t data[] = { 0xF0, 0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x01, 0x16, padIdx, (uint8_t)(r & 0x7F), (uint8_t)(g & 0x7F), (uint8_t)(b & 0x7F), 0xF7 };
+    const uint8_t data[] = {
+        0xF0, 0x00, 0x20, 0x6B, 0x7F, 0x42, // Manufacturer Header
+        0x02, 0x01, 0x16,                   // Write to Edit Buffer -> LED
+        padIdx,                             // Target Pad ID
+        (uint8_t)(r & 0x7F),                // Red (0-127)
+        (uint8_t)(g & 0x7F),                // Green (0-127)
+        (uint8_t)(b & 0x7F),                // Blue (0-127)
+        0xF7                                // End of SysEx
+    };
     return juce::MidiMessage(data, sizeof(data));
 }
+
+// ==============================================================================
+// LIFECYCLE
+// ==============================================================================
 
 MiniLAB3StepSequencerAudioProcessor::MiniLAB3StepSequencerAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
+    // Default GM Drum Map approximations
     const char* names[] = { "Kick", "Snare", "Clap", "Hat Cl", "Hat Op", "Tom L", "Tom M", "Tom H", "Rim", "Shaker", "Cowbell", "Perc 1", "Perc 2", "Conga", "Maracas", "Clave" };
 
     const juce::ScopedLock sl(stateLock);
@@ -21,7 +43,8 @@ MiniLAB3StepSequencerAudioProcessor::MiniLAB3StepSequencerAudioProcessor()
         updateTrackLength(i);
     }
 
-    startTimer(20); // 50Hz continuous UI/LED loop
+    // 50Hz continuous loop for UI repainting and hardware LED state syncing
+    startTimer(20);
 }
 
 MiniLAB3StepSequencerAudioProcessor::~MiniLAB3StepSequencerAudioProcessor() {
@@ -29,7 +52,13 @@ MiniLAB3StepSequencerAudioProcessor::~MiniLAB3StepSequencerAudioProcessor() {
     resetHardwareState();
 }
 
+// ==============================================================================
+// HARDWARE INTEGRATION
+// ==============================================================================
+
 uint8_t MiniLAB3StepSequencerAudioProcessor::getHardwarePadId(int softwareIndex) {
+    // MiniLab 3 maps LEDs 0-3 to the Shift/Octave buttons. 
+    // The physical 8 drum pads start at ID 4. We apply a flat +4 offset to protect the control buttons.
     return (uint8_t)(softwareIndex + 4);
 }
 
@@ -43,6 +72,7 @@ void MiniLAB3StepSequencerAudioProcessor::openHardwareOutput() {
         {
             hardwareOutput = juce::MidiOutput::openDevice(device.identifier);
             if (hardwareOutput) {
+                // Initialize physical pads to black
                 for (int i = 0; i < 8; i++) {
                     hardwareOutput->sendMessageNow(makeMiniLab3PadColorSysex(getHardwarePadId(i), 0, 0, 0));
                 }
@@ -56,26 +86,32 @@ void MiniLAB3StepSequencerAudioProcessor::openHardwareOutput() {
 
 void MiniLAB3StepSequencerAudioProcessor::resetHardwareState() {
     if (hardwareOutput) {
+        // Clear pads back to black on plugin close so they don't get stuck on custom colors
         for (int i = 0; i < 8; i++) {
             hardwareOutput->sendMessageNow(makeMiniLab3PadColorSysex(getHardwarePadId(i), 0, 0, 0));
         }
+        // Give the MIDI driver a moment to flush the buffer before closing
         juce::Thread::sleep(30);
     }
 }
 
 void MiniLAB3StepSequencerAudioProcessor::requestLedRefresh() {
     updateHardwareLEDs(true);
+    // Queue 3 consecutive overwrites to mask the hardware's internal "Local Control" behavior
     ledRefreshCountdown.store(3);
 }
 
 void MiniLAB3StepSequencerAudioProcessor::timerCallback() {
     int current = ledRefreshCountdown.load();
     if (current > 0) {
-        updateHardwareLEDs(true); // Force overwrite for Blue Flash fix
+        // The MiniLab flashes blue automatically when a pad is hit. 
+        // We force-overwrite this multiple times over ~60ms to kill the blue flash.
+        updateHardwareLEDs(true);
         ledRefreshCountdown.store(current - 1);
     }
     else {
-        updateHardwareLEDs(false); // Continuous check for Playhead & Velocity
+        // Normal continuous check for Playhead & Velocity animations
+        updateHardwareLEDs(false);
     }
 }
 
@@ -86,7 +122,7 @@ void MiniLAB3StepSequencerAudioProcessor::updateHardwareLEDs(bool forceOverwrite
     int start = page * 8;
     int instrument = currentInstrument.load();
 
-    // Find the currently playing step to draw the playhead
+    // Calculate playhead position for visual feedback on the pads
     int current16th = global16thNote.load();
     int trackLen = trackLengths[instrument];
     int playingStep = (current16th >= 0 && trackLen > 0) ? (current16th % trackLen) : -1;
@@ -108,10 +144,11 @@ void MiniLAB3StepSequencerAudioProcessor::updateHardwareLEDs(bool forceOverwrite
             b = active ? 127 : 15;
         }
         else if (active) {
-            // VELOCITY SCALING: Brightness goes from 10% (so it's never black) to 100%
+            // VELOCITY SCALING: Brightness goes from 10% to 100%
             float brightness = 0.1f + (vel * 0.9f);
             uint8_t c = (uint8_t)(127.0f * brightness);
 
+            // PAGE COLORS: Different colors so the user knows which 8-step block they are editing
             if (page == 0) { r = 0; g = c; b = c; } // Cyan
             else if (page == 1) { r = c; g = 0; b = c; } // Magenta
             else if (page == 2) { r = c; g = c; b = 0; } // Yellow
@@ -120,13 +157,17 @@ void MiniLAB3StepSequencerAudioProcessor::updateHardwareLEDs(bool forceOverwrite
 
         PadColor newColor{ r, g, b };
 
-        // Only send SysEx if the color actually changed, or if we are forcing an overwrite
+        // Only send SysEx if the color changed to avoid clogging the USB MIDI bandwidth
         if (forceOverwrite || newColor != lastPadColor[p]) {
             lastPadColor[p] = newColor;
             hardwareOutput->sendMessageNow(makeMiniLab3PadColorSysex(getHardwarePadId(p), r, g, b));
         }
     }
 }
+
+// ==============================================================================
+// SEQUENCER LOGIC & MIDI PROCESSING
+// ==============================================================================
 
 void MiniLAB3StepSequencerAudioProcessor::updateTrackLength(int trackIndex)
 {
@@ -138,21 +179,22 @@ void MiniLAB3StepSequencerAudioProcessor::updateTrackLength(int trackIndex)
             break;
         }
     }
+
+    // Auto-size track to 8-step blocks based on last placed note
     if (maxActiveStep >= 24)      trackLengths[trackIndex] = 32;
     else if (maxActiveStep >= 16) trackLengths[trackIndex] = 24;
     else if (maxActiveStep >= 8)  trackLengths[trackIndex] = 16;
     else                          trackLengths[trackIndex] = 8;
 }
 
-void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessage& msg, juce::MidiBuffer& midiMessages)
+void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessage& msg, juce::MidiBuffer&)
 {
     if (msg.isController()) {
         const int cc = msg.getControllerNumber();
         const int val = msg.getControllerValue();
 
-        // MOD WHEEL (CC 1) -> Instrument Selection
+        // MOD WHEEL (CC 1) -> Instrument Selection (Reversed: Up = Inst 1, Down = Inst 16)
         if (cc == 1) {
-            // FIX: Reversed Math. 127 = 0 (First Inst), 0 = 15 (Last Inst)
             int newInst = (127 - val) / 8;
             newInst = juce::jlimit(0, 15, newInst);
             if (currentInstrument.load() != newInst) {
@@ -160,7 +202,7 @@ void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessag
                 requestLedRefresh();
             }
         }
-        // KNOBS 1-8 -> Velocity Control (Mapped to factory CCs)
+        // KNOBS 1-8 -> Velocity Control (Mapped to default MiniLab 3 CCs)
         else if (cc == 74 || cc == 71 || cc == 76 || cc == 77 || cc == 93 || cc == 18 || cc == 19 || cc == 16) {
             int knobIdx = -1;
             if (cc == 74) knobIdx = 0; // Knob 1
@@ -184,6 +226,7 @@ void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessag
                 }
             }
         }
+        // MAIN ENCODER (CC 114) -> Page Turn
         else if (cc == 114) {
             auto page = currentPage.load();
             if (val > 64) currentPage.store(juce::jmin(3, page + 1));
@@ -191,6 +234,7 @@ void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessag
             pageChangedTrigger.store(true);
             requestLedRefresh();
         }
+        // MAIN ENCODER CLICK (CC 115) -> Clear current page
         else if (cc == 115 && val == 127) {
             const int page = currentPage.load();
             const int instrument = currentInstrument.load();
@@ -218,7 +262,7 @@ void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessag
                 const juce::ScopedLock sl(stateLock);
                 sequencerMatrix[instrument][step].isActive = !sequencerMatrix[instrument][step].isActive;
 
-                // Set default velocity when toggled ON (User can change it with knobs later)
+                // Set default velocity when toggled ON
                 if (sequencerMatrix[instrument][step].isActive) {
                     sequencerMatrix[instrument][step].velocity = msg.getFloatVelocity();
                 }
@@ -235,9 +279,11 @@ void MiniLAB3StepSequencerAudioProcessor::processBlock(juce::AudioBuffer<float>&
     juce::MidiBuffer incoming;
     incoming.swapWith(midiMessages);
 
+    // Parse incoming UI/Hardware MIDI 
     for (const auto metadata : incoming)
         handleMidiInput(metadata.getMessage(), midiMessages);
 
+    // Process Sequencer Playback
     if (auto* ph = getPlayHead()) {
         if (auto pos = ph->getPosition()) {
             if (pos->getIsPlaying()) {
@@ -247,6 +293,7 @@ void MiniLAB3StepSequencerAudioProcessor::processBlock(juce::AudioBuffer<float>&
                 if (current16th != global16thNote.load()) {
                     global16thNote.store(current16th);
 
+                    // Calculate swing offset (delays every even 16th note)
                     const bool isEvenNote = (current16th % 2 != 0);
                     int sampleOffset = isEvenNote ? static_cast<int>(swingAmount.load() * (getSampleRate() / 8.0) * 0.5) : 0;
                     sampleOffset = juce::jlimit(0, juce::jmax(0, numSamples - 1), sampleOffset);
@@ -260,23 +307,30 @@ void MiniLAB3StepSequencerAudioProcessor::processBlock(juce::AudioBuffer<float>&
                             const float vel = sequencerMatrix[t][stepIdx].velocity * masterVolume.load();
                             midiMessages.addEvent(juce::MidiMessage::noteOn(1, getGeneralMidiNote(t), vel), sampleOffset);
 
+                            // Schedule Note Off shortly after
                             const int noteOffSample = juce::jmin(numSamples - 1, sampleOffset + 500);
                             midiMessages.addEvent(juce::MidiMessage::noteOff(1, getGeneralMidiNote(t), 0.0f), noteOffSample);
 
+                            // Update UI visual feedback
                             lastFiredVelocity[t][stepIdx] = sequencerMatrix[t][stepIdx].velocity;
                         }
                     }
                 }
             }
-            else global16thNote.store(-1);
+            else global16thNote.store(-1); // Transport is stopped
         }
     }
 
+    // Decay the visual feedback velocities
     const juce::ScopedLock sl(stateLock);
     for (int t = 0; t < 16; ++t)
         for (int s = 0; s < 32; ++s)
             lastFiredVelocity[t][s] *= 0.85f;
 }
+
+// ==============================================================================
+// STATE SAVING & LOADING
+// ==============================================================================
 
 void MiniLAB3StepSequencerAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
@@ -330,10 +384,9 @@ void MiniLAB3StepSequencerAudioProcessor::setStateInformation(const void* data, 
     requestLedRefresh();
 }
 
-int MiniLAB3StepSequencerAudioProcessor::getGeneralMidiNote(int t) { return 36 + t; }
+int MiniLAB3StepSequencerAudioProcessor::getGeneralMidiNote(int t) { return 36 + t; } // Maps Track 0 -> C1
 void MiniLAB3StepSequencerAudioProcessor::prepareToPlay(double, int) { global16thNote.store(-1); }
 void MiniLAB3StepSequencerAudioProcessor::releaseResources() {}
 bool MiniLAB3StepSequencerAudioProcessor::isBusesLayoutSupported(const juce::AudioProcessor::BusesLayout& l) const { return l.getMainOutputChannelSet() == juce::AudioChannelSet::stereo(); }
-
 juce::AudioProcessorEditor* MiniLAB3StepSequencerAudioProcessor::createEditor() { return new MiniLAB3StepSequencerAudioProcessorEditor(*this); }
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new MiniLAB3StepSequencerAudioProcessor(); }
