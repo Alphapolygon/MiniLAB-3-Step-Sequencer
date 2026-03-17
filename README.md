@@ -12,7 +12,7 @@ DAW Sync: Perfect timing with your project BPM via the JUCE framework.
 
 Velocity Sensitive: (Optional: If implemented) Uses pad pressure for step accents.
 
-For Developers
+## For Developers
 If you want to port this to other models (KeyLab 49/61, etc.) or customize the logic:
 
 Clone this repo.
