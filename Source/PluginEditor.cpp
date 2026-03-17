@@ -1,6 +1,15 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    juce::Image loadNudgeKnobStripImage()
+    {
+        return juce::ImageCache::getFromMemory(BinaryData::nudge_knob_strip_png, BinaryData::nudge_knob_strip_pngSize);
+
+    }
+}
+
 static juce::String getMidiNoteName(int note) {
     juce::StringArray notes = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
     int octave = (note / 12) - 2;
@@ -31,6 +40,8 @@ MiniLAB3StepSequencerAudioProcessorEditor::MiniLAB3StepSequencerAudioProcessorEd
     activeKeys[14] = juce::ImageCache::getFromMemory(BinaryData::active_track_15_png, BinaryData::active_track_15_pngSize);
     activeKeys[15] = juce::ImageCache::getFromMemory(BinaryData::active_track_16_png, BinaryData::active_track_16_pngSize);
 
+    nudgeKnobStrip = loadNudgeKnobStripImage();
+
     setSize(1050, 600);
     startTimerHz(60);
 }
@@ -42,7 +53,8 @@ juce::Rectangle<float> MiniLAB3StepSequencerAudioProcessorEditor::getNudgeKnobBo
     const int topY = 124;
     const int cellH = (getHeight() - topY - 20) / 16;
     const float y = static_cast<float>(topY + (trackIndex * cellH));
-    return { 131.0f, y + 3.0f, 28.0f, static_cast<float>(cellH - 6) };
+    const float size = 30.0f;
+    return { 131.0f, y + (cellH - size) * 0.5f, size, size };
 }
 
 void MiniLAB3StepSequencerAudioProcessorEditor::setTrackNudgeFromMs(int trackIndex, float newValueMs)
@@ -58,9 +70,7 @@ void MiniLAB3StepSequencerAudioProcessorEditor::setTrackNudgeFromMs(int trackInd
     if (auto* p = audioProcessor.apvts.getParameter(paramID)) {
         const float normalized = (newValueMs - MiniLAB3StepSequencerAudioProcessor::minMicroTimingMs)
             / (MiniLAB3StepSequencerAudioProcessor::maxMicroTimingMs - MiniLAB3StepSequencerAudioProcessor::minMicroTimingMs);
-        p->beginChangeGesture();
         p->setValueNotifyingHost(normalized);
-        p->endChangeGesture();
     }
 }
 
@@ -130,26 +140,60 @@ void MiniLAB3StepSequencerAudioProcessorEditor::paint(juce::Graphics& g)
         g.setColour(isSoloed ? juce::Colours::black : juce::Colours::grey);
         g.drawFittedText("S", 109, y, 18, cellH, juce::Justification::centred, 1);
 
+        const float knobNudgeMs = audioProcessor.nudgeParams[t]->load();
+        const float knobNormalized = juce::jmap(
+            knobNudgeMs,
+            MiniLAB3StepSequencerAudioProcessor::minMicroTimingMs,
+            MiniLAB3StepSequencerAudioProcessor::maxMicroTimingMs,
+            0.0f,
+            1.0f
+        );
+
         auto knobBounds = getNudgeKnobBounds(t);
-        auto knobCentre = knobBounds.getCentre();
-        const float radius = juce::jmin(knobBounds.getWidth(), knobBounds.getHeight()) * 0.5f - 2.0f;
-        const float normalized = (nudgeMs - MiniLAB3StepSequencerAudioProcessor::minMicroTimingMs)
-            / (MiniLAB3StepSequencerAudioProcessor::maxMicroTimingMs - MiniLAB3StepSequencerAudioProcessor::minMicroTimingMs);
-        const float angle = juce::jmap(normalized, 0.0f, 1.0f, -juce::MathConstants<float>::pi * 0.75f, juce::MathConstants<float>::pi * 0.75f);
 
-        g.setColour(juce::Colour::fromRGB(35, 35, 40));
-        g.fillEllipse(knobBounds);
-        g.setColour(isCurrent ? juce::Colours::cyan.withAlpha(0.85f) : juce::Colours::grey.withAlpha(0.9f));
-        g.drawEllipse(knobBounds, 1.0f);
-        g.drawLine(knobCentre.x,
-                   knobCentre.y,
-                   knobCentre.x + std::cos(angle) * radius,
-                   knobCentre.y + std::sin(angle) * radius,
-                   2.0f);
+        if (nudgeKnobStrip.isValid())
+        {
+            const int frameW = 30;
+            const int frameH = 30;
+            const int numFrames = 15;
 
-        g.setColour(juce::Colours::white.withAlpha(0.75f));
-        g.setFont(juce::FontOptions(9.0f, juce::Font::plain));
-        g.drawFittedText(juce::String(nudgeMs, 1) + "ms", 129, y, 34, cellH, juce::Justification::centredBottom, 1);
+            const int frameIndex = juce::jlimit(
+                0, numFrames - 1,
+                (int)std::round(knobNormalized * (float)(numFrames - 1))
+            );
+
+            g.drawImage(nudgeKnobStrip,
+                knobBounds.getX(), knobBounds.getY(),
+                knobBounds.getWidth(), knobBounds.getHeight(),
+                0, frameIndex * frameH,
+                frameW, frameH);
+        }
+        else
+        {
+            auto knobCentre = knobBounds.getCentre();
+            const float radius = juce::jmin(knobBounds.getWidth(), knobBounds.getHeight()) * 0.5f - 2.0f;
+            const float angle = juce::jmap(knobNormalized, 0.0f, 1.0f,
+                -juce::MathConstants<float>::pi * 0.75f,
+                juce::MathConstants<float>::pi * 0.75f);
+
+            g.setColour(juce::Colour::fromRGB(35, 35, 40));
+            g.fillEllipse(knobBounds);
+            g.setColour(isCurrent ? juce::Colours::cyan.withAlpha(0.85f)
+                : juce::Colours::grey.withAlpha(0.9f));
+            g.drawEllipse(knobBounds, 1.0f);
+            g.drawLine(knobCentre.x,
+                knobCentre.y,
+                knobCentre.x + std::cos(angle) * radius,
+                knobCentre.y + std::sin(angle) * radius,
+                2.0f);
+        }
+
+        g.setColour(juce::Colours::white.withAlpha(0.8f));
+        g.setFont(10.0f);
+        g.drawText(juce::String(knobNudgeMs, 1) + "ms",
+            knobBounds.withY(knobBounds.getBottom() - 2.0f).translated(36.0f, -8.0f),
+            juce::Justification::centredLeft,
+            false);
 
         for (int s = 0; s < 32; ++s) {
             int x = startX + (s * cellW);
@@ -213,7 +257,12 @@ void MiniLAB3StepSequencerAudioProcessorEditor::mouseDown(const juce::MouseEvent
     if (row >= 0 && row < 16) {
         if (getNudgeKnobBounds(row).contains(e.position)) {
             nudgeDragTrack = row;
+            nudgeDragStartX = e.x;
             nudgeDragStartValue = audioProcessor.nudgeParams[row]->load();
+
+            if (auto* p = audioProcessor.apvts.getParameter("nudge_" + juce::String(row + 1)))
+                p->beginChangeGesture();
+
             return;
         }
 
@@ -253,13 +302,22 @@ void MiniLAB3StepSequencerAudioProcessorEditor::mouseDrag(const juce::MouseEvent
     if (nudgeDragTrack < 0)
         return;
 
-    const float deltaMs = -e.getDistanceFromDragStartY() * 0.25f;
+    const float deltaX = static_cast<float>(e.x - nudgeDragStartX);
+    const float valueRange = MiniLAB3StepSequencerAudioProcessor::maxMicroTimingMs
+                           - MiniLAB3StepSequencerAudioProcessor::minMicroTimingMs;
+    const float deltaMs = (deltaX / nudgeDragPixelsForFullRange) * valueRange;
     setTrackNudgeFromMs(nudgeDragTrack, nudgeDragStartValue + deltaMs);
     repaint();
 }
 
 void MiniLAB3StepSequencerAudioProcessorEditor::mouseUp(const juce::MouseEvent&)
 {
+    if (nudgeDragTrack >= 0)
+    {
+        if (auto* p = audioProcessor.apvts.getParameter("nudge_" + juce::String(nudgeDragTrack + 1)))
+            p->endChangeGesture();
+    }
+
     nudgeDragTrack = -1;
 }
 

@@ -21,11 +21,17 @@ private:
     float pageFlashAlpha = 0.0f;
     float nudgeDragStartValue = 0.0f;
     int nudgeDragTrack = -1;
+    int nudgeDragStartX = 0;
+    float nudgeDragPixelsForFullRange = 120.0f;
 
     juce::Image backgroundImage;
     juce::Image inactiveBgA;
     juce::Image inactiveBgB;
     juce::Image activeKeys[16];
+    juce::Image nudgeKnobStrip;
+    int nudgeKnobFrames = 15;
+
+
 
     juce::Rectangle<float> getNudgeKnobBounds(int trackIndex) const;
     void setTrackNudgeFromMs(int trackIndex, float newValueMs);
