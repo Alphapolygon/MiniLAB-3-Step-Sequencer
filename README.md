@@ -3,7 +3,7 @@ Turn your MiniLab 3 / KeyLab Essential pads into a fully functional 16-step sequ
 
 Arturia makes great hardware, but they left a gap: the "Lab" series lacks a hardware step sequencer. This VST3 plugin bridges that gap by hijacking the MIDI data from your pads and providing a synced, visual sequencing interface directly integrated with your DAW.
 
-✨ Features
+## ✨ Features
 16-Step Sequencing: Toggle steps using the physical pads on your controller.
 
 LED Feedback: Pads light up to show active steps and the current playhead (The "Final Boss" of MIDI mapping!).
@@ -21,7 +21,7 @@ Open the .jucer file in JUCE Projucer.
 
 Export to your IDE (Visual Studio / Xcode) and build.
 
-⚖️ License & Terms
+## ⚖️ License & Terms
 This project is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
 
 Free for Personal Use: Use it in your music, live sets, and videos for free.
