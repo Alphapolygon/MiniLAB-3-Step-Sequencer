@@ -3,6 +3,14 @@ Turn your MiniLab 3 / KeyLab Essential pads into a fully functional 16-step sequ
 
 Arturia makes great hardware, but they left a gap: the "Lab" series lacks a hardware step sequencer. This VST3 plugin bridges that gap by hijacking the MIDI data from your pads and providing a synced, visual sequencing interface directly integrated with your DAW.
 
+## ☕ Support the Project
+This plugin was developed to give the MiniLab/KeyLab features that Arturia left out. 
+It took dozens of hours of MIDI reverse-engineering to get the pad lights working!
+Found it useful? Buying me a coffee to support further updates (like minilab mk2m support or and other Arturia models support)
+
+
+[![Ko-Fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/alphapolygon)
+
 ## ✨ Features
 8-32-Step Sequencing: Toggle steps using the physical pads on your controller.
 16 tracks, ability to change what note the track sends (C1,d2 etc)
@@ -56,14 +64,6 @@ ShareAlike: If you modify or build upon this work, you must distribute your cont
 
 Note: As the original author, I reserve the right to offer "Official" compiled installers or support packages for a fee to support the ongoing development of this project.
 
-
-## ☕ Support the Project
-This plugin was developed to give the MiniLab/KeyLab features that Arturia left out. 
-It took dozens of hours of MIDI reverse-engineering to get the pad lights working!
-Found it useful? Buying me a coffee to support further updates (like minilab mk2m support or and other Arturia models support)
-
-
-[![Ko-Fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/alphapolygon)
 
 
 
