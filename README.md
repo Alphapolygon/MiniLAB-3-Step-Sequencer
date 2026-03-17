@@ -4,13 +4,15 @@ Turn your MiniLab 3 / KeyLab Essential pads into a fully functional 16-step sequ
 Arturia makes great hardware, but they left a gap: the "Lab" series lacks a hardware step sequencer. This VST3 plugin bridges that gap by hijacking the MIDI data from your pads and providing a synced, visual sequencing interface directly integrated with your DAW.
 
 ## ✨ Features
-16-Step Sequencing: Toggle steps using the physical pads on your controller.
+8-32-Step Sequencing: Toggle steps using the physical pads on your controller.
+16 tracks, ability to change what note the track sends (C1,d2 etc)
+Each track can have 8 - 32 steps, these are played in sync. Example track 1 can have 16 steps and track 2 8 steps.
 
-LED Feedback: Pads light up to show active steps and the current playhead (The "Final Boss" of MIDI mapping!).
+LED Feedback: Pads light up to show active steps and the current playhead.
 
 DAW Sync: Perfect timing with your project BPM via the JUCE framework.
 
-Velocity Sensitive: (Optional: If implemented) Uses pad pressure for step accents.
+Velocity Sensitive:  Uses pad pressure for step accents and knobs 1 - 8 to tune those values
 
 ## For Developers
 If you want to port this to other models (KeyLab 49/61, etc.) or customize the logic:
