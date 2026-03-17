@@ -23,6 +23,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout MiniLAB3StepSequencerAudioPr
         layout.add(std::make_unique<juce::AudioParameterBool>("mute_" + trk, "Mute " + trk, false));
         layout.add(std::make_unique<juce::AudioParameterBool>("solo_" + trk, "Solo " + trk, false));
         layout.add(std::make_unique<juce::AudioParameterInt>("note_" + trk, "MIDI Note " + trk, 0, 127, 36 + i));
+        layout.add(std::make_unique<juce::AudioParameterFloat>("nudge_" + trk, "Micro-Timing " + trk,
+            juce::NormalisableRange<float>(minMicroTimingMs, maxMicroTimingMs, 0.1f), 0.0f));
     }
     return layout;
 }
@@ -45,6 +47,7 @@ MiniLAB3StepSequencerAudioProcessor::MiniLAB3StepSequencerAudioProcessor()
         muteParams[i] = apvts.getRawParameterValue("mute_" + trk);
         soloParams[i] = apvts.getRawParameterValue("solo_" + trk);
         noteParams[i] = apvts.getRawParameterValue("note_" + trk);
+        nudgeParams[i] = apvts.getRawParameterValue("nudge_" + trk);
 
         for (int s = 0; s < 32; ++s) {
             sequencerMatrix[i][s] = { false, 0.8f, 1.0f };
@@ -226,35 +229,53 @@ void MiniLAB3StepSequencerAudioProcessor::processBlock(juce::AudioBuffer<float>&
     if (auto* ph = getPlayHead()) {
         if (auto pos = ph->getPosition()) {
             if (pos->getIsPlaying()) {
-                const double ppq = pos->getPpqPosition().orFallback(0.0);
-                const int current16th = static_cast<int>(std::floor(ppq * 4.0));
+                const double ppqStart = pos->getPpqPosition().orFallback(0.0);
+                const double bpm = pos->getBpm().orFallback(120.0);
+                const double sampleRate = getSampleRate();
+                const double ppqPerSample = bpm / (60.0 * juce::jmax(1.0, sampleRate));
+                const double blockEndPpq = ppqStart + (numSamples * ppqPerSample);
+                const double stepPpq = 0.25;
+                const double swingPpqOffset = (swingParam->load() * ((0.5 * sampleRate) / 8.0)) * ppqPerSample;
+                const int current16th = static_cast<int>(std::floor(ppqStart * 4.0));
+                global16thNote.store(current16th);
 
-                if (current16th != global16thNote.load()) {
-                    global16thNote.store(current16th);
-                    const bool isEvenNote = (current16th % 2 != 0);
-                    int sampleOffset = isEvenNote ? static_cast<int>(swingParam->load() * (getSampleRate() / 8.0) * 0.5) : 0;
-                    sampleOffset = juce::jlimit(0, juce::jmax(0, numSamples - 1), sampleOffset);
+                const int firstCandidate16th = juce::jmax(0, static_cast<int>(std::floor(ppqStart * 4.0)) - 1);
+                const int lastCandidate16th  = juce::jmax(firstCandidate16th, static_cast<int>(std::ceil(blockEndPpq * 4.0)) + 1);
 
-                    const juce::ScopedLock sl(stateLock);
-                    for (int t = 0; t < 16; ++t) {
-                        bool canPlay = anySolo ? (soloParams[t]->load() > 0.5f) : (muteParams[t]->load() < 0.5f);
-                        const int len = juce::jlimit(1, 32, trackLengths[t]);
-                        const int stepIdx = current16th % len;
+                const juce::ScopedLock sl(stateLock);
+                for (int t = 0; t < 16; ++t) {
+                    const bool canPlay = anySolo ? (soloParams[t]->load() > 0.5f) : (muteParams[t]->load() < 0.5f);
+                    if (!canPlay)
+                        continue;
 
-                        if (canPlay && sequencerMatrix[t][stepIdx].isActive) {
-                            const float vel = sequencerMatrix[t][stepIdx].velocity * masterVolParam->load();
-                            int note = static_cast<int>(noteParams[t]->load());
+                    const int len = juce::jlimit(1, 32, trackLengths[t]);
+                    const int note = static_cast<int>(noteParams[t]->load());
+                    const double nudgePpqOffset = (nudgeParams[t]->load() * 0.001 * bpm / 60.0);
 
-                            midiMessages.addEvent(juce::MidiMessage::noteOn(1, note, vel), sampleOffset);
-                            const int noteOffSample = juce::jmin(numSamples - 1, sampleOffset + 500);
-                            midiMessages.addEvent(juce::MidiMessage::noteOff(1, note, 0.0f), noteOffSample);
+                    for (int absolute16th = firstCandidate16th; absolute16th <= lastCandidate16th; ++absolute16th) {
+                        const int stepIdx = absolute16th % len;
+                        if (!sequencerMatrix[t][stepIdx].isActive)
+                            continue;
 
-                            lastFiredVelocity[t][stepIdx] = sequencerMatrix[t][stepIdx].velocity;
-                        }
+                        double eventPpq = absolute16th * stepPpq;
+                        if ((absolute16th % 2) != 0)
+                            eventPpq += swingPpqOffset;
+                        eventPpq += nudgePpqOffset;
+
+                        const int sampleOffset = static_cast<int>(std::round((eventPpq - ppqStart) / ppqPerSample));
+                        if (sampleOffset < 0 || sampleOffset >= numSamples)
+                            continue;
+
+                        const float vel = sequencerMatrix[t][stepIdx].velocity * masterVolParam->load();
+                        midiMessages.addEvent(juce::MidiMessage::noteOn(1, note, vel), sampleOffset);
+                        midiMessages.addEvent(juce::MidiMessage::noteOff(1, note, 0.0f), juce::jmin(numSamples - 1, sampleOffset + 500));
+                        lastFiredVelocity[t][stepIdx] = sequencerMatrix[t][stepIdx].velocity;
                     }
                 }
             }
-            else global16thNote.store(-1);
+            else {
+                global16thNote.store(-1);
+            }
         }
     }
 

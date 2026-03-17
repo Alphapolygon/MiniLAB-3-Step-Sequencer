@@ -40,7 +40,6 @@ public:
     const juce::String getProgramName(int index) override { return {}; }
     void changeProgramName(int index, const juce::String& newName) override {}
 
-    // Required for APVTS Save/Load
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
@@ -51,18 +50,19 @@ public:
     void requestLedRefresh();
     void timerCallback() override;
 
-    // --- APVTS (The DAW Automation Engine) ---
+    static constexpr float minMicroTimingMs = -20.0f;
+    static constexpr float maxMicroTimingMs = 20.0f;
+
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    // High-speed parameter pointers for the Audio Thread
     std::atomic<float>* masterVolParam;
     std::atomic<float>* swingParam;
     std::atomic<float>* muteParams[16];
     std::atomic<float>* soloParams[16];
     std::atomic<float>* noteParams[16];
+    std::atomic<float>* nudgeParams[16];
 
-    // --- SHARED STATE ---
     mutable juce::CriticalSection stateLock;
     StepData sequencerMatrix[16][32];
     float lastFiredVelocity[16][32];
