@@ -26,6 +26,20 @@ MiniLAB3StepSequencerAudioProcessorEditor::MiniLAB3StepSequencerAudioProcessorEd
                 completion(juce::var());
             }
         )
+        .withNativeFunction("saveFullUiState",
+            [this](const auto& args, auto completion) {
+                if (args.size() > 0) {
+                    audioProcessor.fullUiStateJson = args[0].toString();
+                }
+                completion(juce::var());
+            }
+        )
+        // Allows React to pull the data back when the window opens
+        .withNativeFunction("requestInitialState",
+            [this](const auto& args, auto completion) {
+                completion(juce::var(audioProcessor.fullUiStateJson));
+            }
+        )
 #if JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE
         .withResourceProvider(
             [](const juce::String& url) -> std::optional<juce::WebBrowserComponent::Resource> {

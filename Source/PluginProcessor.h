@@ -2,14 +2,19 @@
 #include <JuceHeader.h>
 #include <atomic>
 
+struct ScheduledMidiEvent {
+    double ppqTime = 0.0;
+    juce::MidiMessage message;
+    bool isActive = false;
+};
+
 struct StepData {
     bool isActive = false;
-    float velocity = 0.8f;
+    float velocity = 0.8f;    // 0.0 to 1.0
     float probability = 1.0f; // 0.0 to 1.0
     float gate = 0.75f;       // 0.0 to 1.0
-    float shift = 0.0f;       // -1.0 to 1.0
-    float swing = 0.0f;       // 0.0 to 1.0
-    int repeat = 1;           // 1 to 4
+    int repeats = 1;          // 1 to 4
+    float shift = 0.5f;       // 0.0 to 1.0 (0.5 is center)
 };
 
 struct PadColor {
@@ -17,13 +22,6 @@ struct PadColor {
     bool operator!=(const PadColor& other) const {
         return r != other.r || g != other.g || b != other.b;
     }
-};
-
-struct ActiveNote {
-    int channel = 1;
-    int note = 0;
-    double endPpq = 0.0;
-    bool isActive = false;
 };
 
 class MiniLAB3StepSequencerAudioProcessor : public juce::AudioProcessor, public juce::Timer
@@ -54,16 +52,12 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
-    // Hardware Methods
     void updateTrackLength(int trackIndex);
     void openHardwareOutput();
     void resetHardwareState();
     bool isHardwareConnected() const { return hardwareOutput != nullptr; }
     void requestLedRefresh();
     void timerCallback() override;
-
-    // JSON Bridge for React UI
-    void setStepDataFromJson(const juce::String& jsonString);
 
     static constexpr float minMicroTimingMs = -20.0f;
     static constexpr float maxMicroTimingMs = 20.0f;
@@ -76,9 +70,11 @@ public:
     std::atomic<float>* muteParams[16];
     std::atomic<float>* soloParams[16];
     std::atomic<float>* noteParams[16];
+    std::atomic<float>* nudgeParams[16];
 
     mutable juce::CriticalSection stateLock;
     StepData sequencerMatrix[16][32];
+    float lastFiredVelocity[16][32];
     int trackLengths[16];
     juce::String instrumentNames[16];
 
@@ -87,16 +83,24 @@ public:
     std::atomic<int> global16thNote{ -1 };
     std::atomic<bool> pageChangedTrigger{ false };
 
-    // DAW State tracking for UI Sync
     std::atomic<double> currentBpm{ 120.0 };
     std::atomic<bool> isPlaying{ false };
+
+    juce::String fullUiStateJson;
+
+    // JSON Parser for React UI
+    void setStepDataFromJson(const juce::String& jsonStr);
 
 private:
     std::unique_ptr<juce::MidiOutput> hardwareOutput;
     bool isAttemptingConnection = false;
     std::atomic<int> ledRefreshCountdown{ 0 };
     PadColor lastPadColor[8];
-    ActiveNote pendingNoteOffs[512];
+
+    // --- PLAYBACK TRACKING ---
+    int lastProcessedStep = -1;
+    ScheduledMidiEvent eventQueue[1024];
+    void scheduleMidiEvent(double ppqTime, const juce::MidiMessage& msg);
 
     void handleMidiInput(const juce::MidiMessage& msg, juce::MidiBuffer& midiMessages);
     void updateHardwareLEDs(bool forceOverwrite);
