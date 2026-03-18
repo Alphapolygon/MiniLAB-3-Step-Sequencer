@@ -238,7 +238,7 @@ void MiniLAB3StepSequencerAudioProcessorEditor::paint(juce::Graphics& g)
 
 void MiniLAB3StepSequencerAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
 {
-    const int startX = 170;
+    const int startX = 200;
     const int topY = 124;
     const int gridAreaW = getWidth() - startX - 25;
     const int cellW = gridAreaW / 32;
