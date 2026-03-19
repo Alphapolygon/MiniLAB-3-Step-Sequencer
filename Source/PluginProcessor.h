@@ -15,6 +15,7 @@ struct StepData {
     float gate = 0.75f;       // 0.0 to 1.0
     int repeats = 1;          // 1 to 4
     float shift = 0.5f;       // 0.0 to 1.0 (0.5 is center)
+    float swing = 0.0f;       // 0.0 to 1.0 additional per-step swing amount
 };
 
 struct PadColor {
@@ -82,14 +83,20 @@ public:
     std::atomic<int> currentPage{ 0 };
     std::atomic<int> global16thNote{ -1 };
     std::atomic<bool> pageChangedTrigger{ false };
+    std::atomic<int> activePatternIndex{ 0 };
 
     std::atomic<double> currentBpm{ 120.0 };
     std::atomic<bool> isPlaying{ false };
+
+    std::atomic<uint32_t> uiStateVersion{ 1 };
 
     juce::String fullUiStateJson;
 
     // JSON Parser for React UI
     void setStepDataFromJson(const juce::String& jsonStr);
+    juce::var buildCurrentPatternStateVar() const;
+    juce::String buildFullUiStateJsonForEditor() const;
+    uint32_t getUiStateVersion() const noexcept { return uiStateVersion.load(); }
 
 private:
     std::unique_ptr<juce::MidiOutput> hardwareOutput;
@@ -105,6 +112,8 @@ private:
     void handleMidiInput(const juce::MidiMessage& msg, juce::MidiBuffer& midiMessages);
     void updateHardwareLEDs(bool forceOverwrite);
     uint8_t getHardwarePadId(int softwareIndex);
+    void markUiStateDirty() noexcept;
+    void setParameterFromPlainValue(const juce::String& parameterId, float plainValue);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MiniLAB3StepSequencerAudioProcessor)
 };

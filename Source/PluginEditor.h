@@ -10,8 +10,6 @@ public:
 
     void paint(juce::Graphics&) override {} // Handled by WebBrowserComponent
     void resized() override;
-
-    // Timer for DAW state sync polling
     void timerCallback() override;
 
 private:
@@ -21,6 +19,7 @@ private:
     double lastBpm = 0.0;
     bool lastIsPlaying = false;
     int lastStep = -1;
+    uint32_t lastUiStateVersion = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MiniLAB3StepSequencerAudioProcessorEditor)
 };

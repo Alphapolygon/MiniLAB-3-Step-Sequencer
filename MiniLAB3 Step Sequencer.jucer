@@ -15,47 +15,7 @@
       <FILE id="yx7Wbh" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
     </GROUP>
     <GROUP id="{6DC98CE1-D936-C4FC-6B95-40FB02275663}" name="UI">
-      <FILE id="GaZXbf" name="favicon.svg" compile="0" resource="1" file="UI/favicon.svg"/>
-      <FILE id="JRrWKQ" name="icons.svg" compile="0" resource="1" file="UI/icons.svg"/>
       <FILE id="djM6CN" name="index.html" compile="0" resource="1" file="UI/index.html"/>
-      <FILE id="McuCxt" name="active_track_1.png" compile="0" resource="1"
-            file="UI/active_track_1.png"/>
-      <FILE id="PxApuB" name="active_track_2.png" compile="0" resource="1"
-            file="UI/active_track_2.png"/>
-      <FILE id="L4i7Jj" name="active_track_3.png" compile="0" resource="1"
-            file="UI/active_track_3.png"/>
-      <FILE id="shil0j" name="active_track_4.png" compile="0" resource="1"
-            file="UI/active_track_4.png"/>
-      <FILE id="yjY6VP" name="active_track_5.png" compile="0" resource="1"
-            file="UI/active_track_5.png"/>
-      <FILE id="ETfgME" name="active_track_6.png" compile="0" resource="1"
-            file="UI/active_track_6.png"/>
-      <FILE id="gMkGv7" name="active_track_7.png" compile="0" resource="1"
-            file="UI/active_track_7.png"/>
-      <FILE id="DZthfY" name="active_track_8.png" compile="0" resource="1"
-            file="UI/active_track_8.png"/>
-      <FILE id="xYNcnB" name="active_track_9.png" compile="0" resource="1"
-            file="UI/active_track_9.png"/>
-      <FILE id="uFLUtl" name="active_track_10.png" compile="0" resource="1"
-            file="UI/active_track_10.png"/>
-      <FILE id="bnhrmX" name="active_track_11.png" compile="0" resource="1"
-            file="UI/active_track_11.png"/>
-      <FILE id="EhdMzw" name="active_track_12.png" compile="0" resource="1"
-            file="UI/active_track_12.png"/>
-      <FILE id="ViQcZA" name="active_track_13.png" compile="0" resource="1"
-            file="UI/active_track_13.png"/>
-      <FILE id="ZLThht" name="active_track_14.png" compile="0" resource="1"
-            file="UI/active_track_14.png"/>
-      <FILE id="RF7TO5" name="active_track_15.png" compile="0" resource="1"
-            file="UI/active_track_15.png"/>
-      <FILE id="XQ1aYs" name="active_track_16.png" compile="0" resource="1"
-            file="UI/active_track_16.png"/>
-      <FILE id="f2QwAD" name="bg_dark.png" compile="0" resource="1" file="UI/bg_dark.png"/>
-      <FILE id="ElVVSe" name="bg_light.png" compile="0" resource="1" file="UI/bg_light.png"/>
-      <FILE id="eGroay" name="nudge_knob_strip.png" compile="0" resource="1"
-            file="UI/nudge_knob_strip.png"/>
-      <FILE id="cMhLsg" name="MainBackground.png" compile="0" resource="1"
-            file="UI/MainBackground.png"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>
