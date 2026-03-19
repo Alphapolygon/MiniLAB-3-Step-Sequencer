@@ -4,50 +4,52 @@
 
 MiniLAB3StepSequencerAudioProcessorEditor::MiniLAB3StepSequencerAudioProcessorEditor(MiniLAB3StepSequencerAudioProcessor& p)
     : AudioProcessorEditor(&p),
-      audioProcessor(p),
-      webComponent(
-          juce::WebBrowserComponent::Options{}
-              .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
-              .withKeepPageLoadedWhenBrowserIsHidden()
-              .withWinWebView2Options(
-                  juce::WebBrowserComponent::Options::WinWebView2{}
-                      .withUserDataFolder(
-                          juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                              .getChildFile("MiniLAB3Sequencer")
-                              .getChildFile("WebView2Cache")))
-              .withNativeFunction("updateCPlusPlusState",
-                  [this](const auto& args, auto completion)
-                  {
-                      if (!args.isEmpty())
-                          audioProcessor.setStepDataFromJson(args[0].toString());
-                      completion(juce::var());
-                  })
-              .withNativeFunction("saveFullUiState",
-                  [this](const auto& args, auto completion)
-                  {
-                      if (!args.isEmpty())
-                          audioProcessor.fullUiStateJson = args[0].toString();
-                      completion(juce::var());
-                  })
-              .withNativeFunction("requestInitialState",
-                  [this](const auto&, auto completion)
-                  {
-                      completion(juce::var(audioProcessor.buildFullUiStateJsonForEditor()));
-                  })
+    audioProcessor(p),
+    webComponent(
+        juce::WebBrowserComponent::Options{}
+        .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
+        .withKeepPageLoadedWhenBrowserIsHidden()
+        .withWinWebView2Options(
+            juce::WebBrowserComponent::Options::WinWebView2{}
+            .withUserDataFolder(
+                juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                .getChildFile("MiniLAB3Sequencer")
+                .getChildFile("WebView2Cache")))
+        .withNativeFunction("updateCPlusPlusState",
+            [this](const auto& args, auto completion)
+            {
+                // FIXED: Send the raw JS object directly to C++
+                if (!args.isEmpty())
+                    audioProcessor.setStepDataFromVar(args[0]);
+                completion(juce::var());
+            })
+        .withNativeFunction("saveFullUiState",
+            [this](const auto& args, auto completion)
+            {
+                // FIXED: Convert JS object to string ONLY for saving to the hard drive
+                if (!args.isEmpty())
+                    audioProcessor.fullUiStateJson = juce::JSON::toString(args[0]);
+                completion(juce::var());
+            })
+        .withNativeFunction("requestInitialState",
+            [this](const auto&, auto completion)
+            {
+                completion(juce::var(audioProcessor.buildFullUiStateJsonForEditor()));
+            })
 #if JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE
-              .withResourceProvider(
-                  [](const juce::String& url) -> std::optional<juce::WebBrowserComponent::Resource>
-                  {
-                      if (url.isEmpty() || url == "/" || url.contains("index.html"))
-                      {
-                          const auto* data = reinterpret_cast<const std::byte*>(BinaryData::index_html);
-                          std::vector<std::byte> htmlVector(data, data + BinaryData::index_htmlSize);
-                          return juce::WebBrowserComponent::Resource{ std::move(htmlVector), juce::String("text/html") };
-                      }
-                      return std::nullopt;
-                  })
+        .withResourceProvider(
+            [](const juce::String& url) -> std::optional<juce::WebBrowserComponent::Resource>
+            {
+                if (url.isEmpty() || url == "/" || url.contains("index.html"))
+                {
+                    const auto* data = reinterpret_cast<const std::byte*>(BinaryData::index_html);
+                    std::vector<std::byte> htmlVector(data, data + BinaryData::index_htmlSize);
+                    return juce::WebBrowserComponent::Resource{ std::move(htmlVector), juce::String("text/html") };
+                }
+                return std::nullopt;
+            })
 #endif
-      )
+    )
 {
     addAndMakeVisible(webComponent);
     setSize(1460, 1024);
