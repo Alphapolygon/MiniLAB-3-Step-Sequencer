@@ -158,48 +158,33 @@ void MiniLAB3StepSequencerAudioProcessor::openHardwareOutput()
 
     isAttemptingConnection = true;
 
-    // FIX: Launch a background thread so the Windows MIDI bug doesn't freeze the DAW!
-    juce::Thread::launch([this]()
+    std::vector<std::unique_ptr<ControllerProfile>> profiles;
+    profiles.push_back(std::make_unique<ArturiaMiniLab3Profile>());
+
+    // This MUST run on the main thread to prevent the MidiDeviceList assertion
+    for (const auto& device : juce::MidiOutput::getAvailableDevices())
+    {
+        for (auto& profile : profiles)
         {
-            // 1. Scan devices on the background thread (takes 3-5 mins if Windows is bugged)
-            auto availableDevices = juce::MidiOutput::getAvailableDevices();
-
-            std::unique_ptr<juce::MidiOutput> openedDevice;
-            std::unique_ptr<ControllerProfile> matchedProfile;
-
-            // 2. Open the device on the background thread (can also cause hangs)
-            for (const auto& device : availableDevices)
+            if (device.name.containsIgnoreCase(profile->getDeviceNameSubstring()) &&
+                device.name.containsIgnoreCase("MIDI") &&
+                !device.name.containsIgnoreCase("DIN") &&
+                !device.name.containsIgnoreCase("MCU"))
             {
-                if (device.name.containsIgnoreCase("Minilab3") &&
-                    device.name.containsIgnoreCase("MIDI") &&
-                    !device.name.containsIgnoreCase("DIN") &&
-                    !device.name.containsIgnoreCase("MCU"))
+                hardwareOutput = juce::MidiOutput::openDevice(device.identifier);
+                if (hardwareOutput != nullptr)
                 {
-                    openedDevice = juce::MidiOutput::openDevice(device.identifier);
-                    if (openedDevice != nullptr)
-                    {
-                        matchedProfile = std::make_unique<ArturiaMiniLab3Profile>();
-
-                        // 3. Send the heavy initial LED SysEx dump on the background thread!
-                        matchedProfile->initializeHardware(openedDevice.get());
-                        break;
-                    }
+                    activeController = std::move(profile);
+                    activeController->initializeHardware(hardwareOutput.get());
+                    requestLedRefresh();
                 }
+                break;
             }
+        }
+        if (hardwareOutput != nullptr) break;
+    }
 
-            // 4. Safely hand the connected device over to the main thread
-            juce::MessageManager::callAsync([this, device = openedDevice.release(), profile = matchedProfile.release()]() mutable
-                {
-                    if (device != nullptr && profile != nullptr)
-                    {
-                        activeController.reset(profile);
-                        hardwareOutput.reset(device);
-                        requestLedRefresh();
-                    }
-
-                    isAttemptingConnection = false;
-                });
-        });
+    isAttemptingConnection = false;
 }
 
 void MiniLAB3StepSequencerAudioProcessor::resetHardwareState()
@@ -217,6 +202,9 @@ void MiniLAB3StepSequencerAudioProcessor::requestLedRefresh()
 
 void MiniLAB3StepSequencerAudioProcessor::timerCallback()
 {
+    if (initialising.load(std::memory_order_acquire))
+        return;
+
     if (hardwareOutput == nullptr)
     {
         static int connectionRetry = 0;
@@ -247,6 +235,9 @@ void MiniLAB3StepSequencerAudioProcessor::updateHardwareLEDs(bool forceOverwrite
 
 void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessage& msg, juce::MidiBuffer&)
 {
+    if (initialising.load(std::memory_order_acquire))
+        return;
+
     if (activeController != nullptr)
     {
         if (activeController->handleMidiInput(msg, *this))

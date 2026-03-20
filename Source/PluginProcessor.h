@@ -56,6 +56,7 @@ public:
     std::atomic<float>* soloParams[MiniLAB3Seq::kNumTracks] = {};
     std::atomic<float>* noteParams[MiniLAB3Seq::kNumTracks] = {};
     std::atomic<float>* nudgeParams[MiniLAB3Seq::kNumTracks] = {};
+    std::atomic<bool> initialising { true };
 
     // Lock-Free Double Buffering State
     using MatrixSnapshot = StepData[MiniLAB3Seq::kNumTracks][MiniLAB3Seq::kNumSteps];

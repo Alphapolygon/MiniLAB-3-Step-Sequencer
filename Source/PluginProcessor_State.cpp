@@ -145,7 +145,7 @@ void MiniLAB3StepSequencerAudioProcessor::setStepDataFromVar(const juce::var& st
     }
 
     requestLedRefresh();
-   // markUiStateDirty();
+    // markUiStateDirty();
 }
 
 juce::var MiniLAB3StepSequencerAudioProcessor::buildCurrentPatternStateVar() const
@@ -324,63 +324,84 @@ void MiniLAB3StepSequencerAudioProcessor::getStateInformation(juce::MemoryBlock&
 void MiniLAB3StepSequencerAudioProcessor::setStateInformation(const void* data, int size)
 {
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, size));
-    if (xmlState != nullptr)
+    if (xmlState == nullptr)
+        return;
+
+    if (xmlState->hasTagName(apvts.state.getType()))
     {
-        if (xmlState->hasTagName(apvts.state.getType()))
-            apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+        // Deep-copy the XML so we can remove custom children before fromXml()
+        auto apvtsXml = std::make_unique<juce::XmlElement>(*xmlState);
 
-        if (auto* matrix = xmlState->getChildByName("Matrix"))
+        for (auto* child = apvtsXml->getFirstChildElement(); child != nullptr;)
         {
-            auto* trackElement = matrix->getChildByName("Track");
-            int track = 0;
+            auto* next = child->getNextElement();
 
-            modifySequencerState([&](MatrixSnapshot& writeMatrix)
+            if (child->hasTagName("Matrix") || child->hasTagName("ReactUIState"))
+                apvtsXml->removeChildElement(child, true);
+
+            child = next;
+        }
+
+        auto restoredTree = juce::ValueTree::fromXml(*apvtsXml);
+        if (restoredTree.isValid())
+            apvts.replaceState(restoredTree);
+    }
+
+    if (auto* matrix = xmlState->getChildByName("Matrix"))
+    {
+        auto* trackElement = matrix->getChildByName("Track");
+        int track = 0;
+
+        modifySequencerState([&](MatrixSnapshot& writeMatrix)
+            {
+                while (trackElement != nullptr && track < MiniLAB3Seq::kNumTracks)
                 {
-                    while (trackElement != nullptr && track < MiniLAB3Seq::kNumTracks)
+                    instrumentNames[track] = trackElement->getStringAttribute("name", instrumentNames[track]);
+                    trackMidiChannels[track].store(trackElement->getIntAttribute("midiChannel", track + 1));
+
+                    const auto steps = trackElement->getStringAttribute("steps");
+                    juce::StringArray velocities, gates, probabilities, repeats, shifts, swings;
+                    velocities.addTokens(trackElement->getStringAttribute("velocities"), ",", "");
+                    gates.addTokens(trackElement->getStringAttribute("gates"), ",", "");
+                    probabilities.addTokens(trackElement->getStringAttribute("probabilities"), ",", "");
+                    repeats.addTokens(trackElement->getStringAttribute("repeats"), ",", "");
+                    shifts.addTokens(trackElement->getStringAttribute("shifts"), ",", "");
+                    swings.addTokens(trackElement->getStringAttribute("swings"), ",", "");
+
+                    for (int step = 0; step < MiniLAB3Seq::kNumSteps; ++step)
                     {
-                        instrumentNames[track] = trackElement->getStringAttribute("name", instrumentNames[track]);
-                        trackMidiChannels[track].store(trackElement->getIntAttribute("midiChannel", track + 1));
-
-                        const auto steps = trackElement->getStringAttribute("steps");
-                        juce::StringArray velocities, gates, probabilities, repeats, shifts, swings;
-                        velocities.addTokens(trackElement->getStringAttribute("velocities"), ",", "");
-                        gates.addTokens(trackElement->getStringAttribute("gates"), ",", "");
-                        probabilities.addTokens(trackElement->getStringAttribute("probabilities"), ",", "");
-                        repeats.addTokens(trackElement->getStringAttribute("repeats"), ",", "");
-                        shifts.addTokens(trackElement->getStringAttribute("shifts"), ",", "");
-                        swings.addTokens(trackElement->getStringAttribute("swings"), ",", "");
-
-                        for (int step = 0; step < MiniLAB3Seq::kNumSteps; ++step)
-                        {
-                            writeMatrix[track][step].isActive = (step < steps.length() && steps[step] == '1');
-                            if (step < velocities.size())    writeMatrix[track][step].velocity = velocities[step].getFloatValue();
-                            if (step < gates.size())         writeMatrix[track][step].gate = gates[step].getFloatValue();
-                            if (step < probabilities.size()) writeMatrix[track][step].probability = probabilities[step].getFloatValue();
-                            if (step < repeats.size())       writeMatrix[track][step].repeats = repeats[step].getIntValue();
-                            if (step < shifts.size())        writeMatrix[track][step].shift = shifts[step].getFloatValue();
-                            if (step < swings.size())        writeMatrix[track][step].swing = swings[step].getFloatValue();
-                        }
-
-                        trackElement = trackElement->getNextElementWithTagName("Track");
-                        ++track;
+                        writeMatrix[track][step].isActive = (step < steps.length() && steps[step] == '1');
+                        if (step < velocities.size())    writeMatrix[track][step].velocity = velocities[step].getFloatValue();
+                        if (step < gates.size())         writeMatrix[track][step].gate = gates[step].getFloatValue();
+                        if (step < probabilities.size()) writeMatrix[track][step].probability = probabilities[step].getFloatValue();
+                        if (step < repeats.size())       writeMatrix[track][step].repeats = repeats[step].getIntValue();
+                        if (step < shifts.size())        writeMatrix[track][step].shift = shifts[step].getFloatValue();
+                        if (step < swings.size())        writeMatrix[track][step].swing = swings[step].getFloatValue();
                     }
-                });
-        }
 
-        if (auto* uiState = xmlState->getChildByName("ReactUIState"))
-            fullUiStateJson = uiState->getAllSubText();
+                    trackElement = trackElement->getNextElementWithTagName("Track");
+                    ++track;
+                }
+            });
+    }
 
-        activePatternIndex.store(xmlState->getIntAttribute("activePatternIndex", 0));
+    if (auto* uiState = xmlState->getChildByName("ReactUIState"))
+        fullUiStateJson = uiState->getAllSubText();
 
-        const auto savedUiState = juce::JSON::parse(fullUiStateJson);
-        if (auto* savedUiObject = savedUiState.getDynamicObject())
-        {
-            if (savedUiObject->hasProperty("selectedTrack"))
-                currentInstrument.store(juce::jlimit(0, MiniLAB3Seq::kNumTracks - 1, static_cast<int>(savedUiObject->getProperty("selectedTrack"))));
+    activePatternIndex.store(xmlState->getIntAttribute("activePatternIndex", 0));
 
-            if (savedUiObject->hasProperty("currentPage"))
-                currentPage.store(juce::jlimit(0, MiniLAB3Seq::kNumPages - 1, static_cast<int>(savedUiObject->getProperty("currentPage"))));
-        }
+    const auto savedUiState = juce::JSON::parse(fullUiStateJson);
+    if (auto* savedUiObject = savedUiState.getDynamicObject())
+    {
+        if (savedUiObject->hasProperty("selectedTrack"))
+            currentInstrument.store(
+                juce::jlimit(0, MiniLAB3Seq::kNumTracks - 1,
+                    static_cast<int>(savedUiObject->getProperty("selectedTrack"))));
+
+        if (savedUiObject->hasProperty("currentPage"))
+            currentPage.store(
+                juce::jlimit(0, MiniLAB3Seq::kNumPages - 1,
+                    static_cast<int>(savedUiObject->getProperty("currentPage"))));
     }
 
     for (int track = 0; track < MiniLAB3Seq::kNumTracks; ++track)
@@ -388,4 +409,6 @@ void MiniLAB3StepSequencerAudioProcessor::setStateInformation(const void* data, 
 
     requestLedRefresh();
     markUiStateDirty();
+    initialising.store(false, std::memory_order_release);
 }
+

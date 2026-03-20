@@ -20,7 +20,12 @@ MiniLAB3StepSequencerAudioProcessorEditor::MiniLAB3StepSequencerAudioProcessorEd
             [this](const auto& args, auto completion)
             {
                 if (!args.isEmpty())
-                    audioProcessor.setStepDataFromVar(args[0]);
+                {
+                    // Dispatch APVTS modifications to the main thread!
+                    juce::MessageManager::callAsync([this, stateVar = args[0]]() {
+                        audioProcessor.setStepDataFromVar(stateVar);
+                        });
+                }
                 completion(juce::var());
             })
         .withNativeFunction("saveFullUiState",
@@ -35,18 +40,27 @@ MiniLAB3StepSequencerAudioProcessorEditor::MiniLAB3StepSequencerAudioProcessorEd
                         audioProcessor.fullUiStateJson = juce::JSON::toString(args[0]);
                 }
                 completion(juce::var());
-            })
+            })  
         .withNativeFunction("requestInitialState",
             [this](const auto&, auto completion)
             {
-                completion(juce::var(audioProcessor.buildFullUiStateJsonForEditor()));
+                juce::DynamicObject::Ptr root = new juce::DynamicObject();
+                root->setProperty("selectedTrack", audioProcessor.currentInstrument.load());
+                root->setProperty("currentPage", audioProcessor.currentPage.load());
+                root->setProperty("activeIdx", audioProcessor.activePatternIndex.load());
+                root->setProperty("themeIdx", 0);
+                root->setProperty("footerTab", "Velocity");
+                completion(juce::var(root.get()));
             })
         .withNativeFunction("uiReadyForEngineState",
             [this](const auto&, auto completion)
             {
-                // UI is connected! Ungag the timer.
-                isUiConnected.store(true);
-                audioProcessor.requestUiStateBroadcast();
+                // Dispatch MIDI initialization to the main thread!
+                juce::MessageManager::callAsync([this]() {
+                    isUiConnected.store(true);
+                    audioProcessor.requestUiStateBroadcast();
+                    audioProcessor.openHardwareOutput();
+                    });
                 completion(juce::var());
             })
 #if JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE

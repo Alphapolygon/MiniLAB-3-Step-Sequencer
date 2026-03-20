@@ -56,8 +56,8 @@ MiniLAB3StepSequencerAudioProcessor::MiniLAB3StepSequencerAudioProcessor()
     for (int i = 0; i < MiniLAB3Seq::kNumTracks; ++i)
         updateTrackLength(i);
 
-    openHardwareOutput();
-    startTimer(20);
+    //openHardwareOutput();
+    startTimer(250);
 }
 
 MiniLAB3StepSequencerAudioProcessor::~MiniLAB3StepSequencerAudioProcessor()
