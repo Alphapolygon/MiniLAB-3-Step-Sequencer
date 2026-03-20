@@ -17,6 +17,11 @@ const NATIVE_CALL_TIMEOUT_MS = {
     saveFullUiState: 1200,
 };
 
+const ENGINE_SYNC_DELAY_MS = 75;
+const UI_ONLY_SAVE_DELAY_MS = 300;
+const PATTERN_SAVE_DELAY_MS = 2500;
+const SAVE_RETRY_DELAY_MS = 250;
+
 const wait = (ms) => new Promise(resolve => window.setTimeout(resolve, ms));
 
 export function useJuceBridge() {
@@ -38,13 +43,19 @@ export function useJuceBridge() {
 
     const hasHydrated = useRef(false);
     const syncTimeout = useRef(null);
-	const saveUiTimeout = useRef(null); 
+    const saveUiTimeout = useRef(null);
+
     const nativeFnsRef = useRef({
         updateCPlusPlusState: null,
         saveFullUiState: null,
         requestInitialState: null,
         uiReadyForEngineState: null,
     });
+
+    const saveInFlightRef = useRef(false);
+    const pendingSnapshotJsonRef = useRef(null);
+    const lastSavedSnapshotJsonRef = useRef('');
+    const lastEnginePayloadRef = useRef('');
 
     const backendSupportsEvents = useCallback(() => {
         const backend = window.__JUCE__?.backend;
@@ -109,14 +120,65 @@ export function useJuceBridge() {
         footerTab: overrides.footerTab ?? footerTab
     }), [patterns, activeIdx, themeIdx, selectedTrack, currentPage, footerTab]);
 
-    const saveUiSnapshot = useCallback((snapshot) => {
+    const flushQueuedSnapshotSave = useCallback(async () => {
+        if (!backendReady || !hasHydrated.current) return;
+        if (saveInFlightRef.current) return;
+
+        const snapshotJson = pendingSnapshotJsonRef.current;
+        if (!snapshotJson || snapshotJson === lastSavedSnapshotJsonRef.current) return;
+
+        pendingSnapshotJsonRef.current = null;
+        saveInFlightRef.current = true;
+
+        try {
+            await invokeNativeWithTimeout('saveFullUiState', [snapshotJson], NATIVE_CALL_TIMEOUT_MS.saveFullUiState);
+            lastSavedSnapshotJsonRef.current = snapshotJson;
+        } catch (err) {
+            console.error('saveFullUiState failed', err);
+
+            if (!pendingSnapshotJsonRef.current) {
+                pendingSnapshotJsonRef.current = snapshotJson;
+            }
+        } finally {
+            saveInFlightRef.current = false;
+
+            if (
+                pendingSnapshotJsonRef.current &&
+                pendingSnapshotJsonRef.current !== lastSavedSnapshotJsonRef.current
+            ) {
+                if (saveUiTimeout.current) {
+                    window.clearTimeout(saveUiTimeout.current);
+                }
+
+                saveUiTimeout.current = window.setTimeout(() => {
+                    flushQueuedSnapshotSave();
+                }, SAVE_RETRY_DELAY_MS);
+            }
+        }
+    }, [backendReady, invokeNativeWithTimeout]);
+
+    const queueUiSnapshotSave = useCallback((snapshot, delayMs) => {
         if (!backendReady || !hasHydrated.current) return;
 
-        invokeNativeWithTimeout('saveFullUiState', [JSON.stringify(snapshot)], NATIVE_CALL_TIMEOUT_MS.saveFullUiState)
-            .catch(err => {
-                console.error('saveFullUiState failed', err);
-            });
-    }, [backendReady, invokeNativeWithTimeout]);
+        const snapshotJson = JSON.stringify(snapshot);
+
+        if (
+            snapshotJson === lastSavedSnapshotJsonRef.current ||
+            snapshotJson === pendingSnapshotJsonRef.current
+        ) {
+            return;
+        }
+
+        pendingSnapshotJsonRef.current = snapshotJson;
+
+        if (saveUiTimeout.current) {
+            window.clearTimeout(saveUiTimeout.current);
+        }
+
+        saveUiTimeout.current = window.setTimeout(() => {
+            flushQueuedSnapshotSave();
+        }, delayMs);
+    }, [backendReady, flushQueuedSnapshotSave]);
 
     const syncPatternToEngine = useCallback((patternData, overrides = {}) => {
         if (!backendReady) return;
@@ -128,9 +190,19 @@ export function useJuceBridge() {
             currentPage: overrides.currentPage ?? currentPage
         });
 
+        if (payload === lastEnginePayloadRef.current) {
+            return;
+        }
+
+        lastEnginePayloadRef.current = payload;
+
         invokeNativeWithTimeout('updateCPlusPlusState', [payload], NATIVE_CALL_TIMEOUT_MS.updateCPlusPlusState)
             .catch(err => {
                 console.error('updateCPlusPlusState failed', err);
+
+                if (lastEnginePayloadRef.current === payload) {
+                    lastEnginePayloadRef.current = '';
+                }
             });
     }, [backendReady, activeIdx, selectedTrack, currentPage, invokeNativeWithTimeout]);
 
@@ -299,6 +371,15 @@ export function useJuceBridge() {
             setActiveSection(normalized.currentPage);
             setFooterTab(normalized.footerTab);
 
+            lastSavedSnapshotJsonRef.current = JSON.stringify({
+                patterns: normalized.patterns,
+                activeIdx: normalized.activeIdx,
+                themeIdx: normalized.themeIdx,
+                selectedTrack: normalized.selectedTrack,
+                currentPage: normalized.currentPage,
+                footerTab: normalized.footerTab
+            });
+
             await new Promise(resolve => window.requestAnimationFrame(() => resolve()));
             if (cancelled) return;
 
@@ -339,23 +420,23 @@ export function useJuceBridge() {
         };
     }, [backendReady, invokeNativeWithTimeout]);
 
-   useEffect(() => {
+    useEffect(() => {
         if (!hasHydrated.current || !backendReady) return;
+        queueUiSnapshotSave(buildUiSnapshot(), PATTERN_SAVE_DELAY_MS);
+    }, [patterns, backendReady, buildUiSnapshot, queueUiSnapshotSave]);
 
-        // Clear the previous timeout if the user is still clicking/dragging
-        if (saveUiTimeout.current) window.clearTimeout(saveUiTimeout.current);
-
-        // Wait 500ms after the last UI change before sending the massive snapshot to C++
-        saveUiTimeout.current = window.setTimeout(() => {
-            saveUiSnapshot(buildUiSnapshot());
-        }, 500);
-
-    }, [patterns, activeIdx, themeIdx, selectedTrack, currentPage, footerTab, backendReady, buildUiSnapshot, saveUiSnapshot]);
+    useEffect(() => {
+        if (!hasHydrated.current || !backendReady) return;
+        queueUiSnapshotSave(buildUiSnapshot(), UI_ONLY_SAVE_DELAY_MS);
+    }, [activeIdx, themeIdx, selectedTrack, currentPage, footerTab, backendReady, buildUiSnapshot, queueUiSnapshotSave]);
 
     useEffect(() => {
         return () => {
             if (syncTimeout.current) {
                 window.clearTimeout(syncTimeout.current);
+            }
+            if (saveUiTimeout.current) {
+                window.clearTimeout(saveUiTimeout.current);
             }
         };
     }, []);
@@ -375,7 +456,7 @@ export function useJuceBridge() {
         if (syncTimeout.current) window.clearTimeout(syncTimeout.current);
         syncTimeout.current = window.setTimeout(() => {
             syncPatternToEngine(updatedData);
-        }, 30);
+        }, ENGINE_SYNC_DELAY_MS);
     }, [activeIdx, patterns, syncPatternToEngine]);
 
     return {
