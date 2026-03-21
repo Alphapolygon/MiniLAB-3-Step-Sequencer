@@ -1,5 +1,14 @@
 #include "PluginProcessor.h"
 
+namespace {
+    // Min-Heap comparator: lowest PPQ at the top
+    struct EventComparator {
+        bool operator()(const ScheduledMidiEvent& a, const ScheduledMidiEvent& b) const {
+            return a.ppqTime > b.ppqTime;
+        }
+    };
+}
+
 void MiniLAB3StepSequencerAudioProcessor::prepareToPlay(double, int)
 {
     global16thNote.store(-1, std::memory_order_release);
@@ -7,7 +16,6 @@ void MiniLAB3StepSequencerAudioProcessor::prepareToPlay(double, int)
     queuedEventCount = 0;
     hwFifo.reset();
 
-    // Reset deterministic PRNG so bounce-in-place / offline render is always identical
     playbackRandom.setSeed(0x31337);
 
     for (auto& event : eventQueue)
@@ -24,17 +32,12 @@ void MiniLAB3StepSequencerAudioProcessor::scheduleMidiEvent(double ppqTime, cons
         return;
     }
 
-    size_t insertIndex = queuedEventCount;
-    while (insertIndex > 0 && eventQueue[insertIndex - 1].ppqTime > ppqTime)
-    {
-        eventQueue[insertIndex] = eventQueue[insertIndex - 1];
-        --insertIndex;
-    }
-
-    eventQueue[insertIndex].ppqTime = ppqTime;
-    eventQueue[insertIndex].message = msg;
-    eventQueue[insertIndex].isActive = true;
+    // O(log N) push onto the heap
+    eventQueue[queuedEventCount].ppqTime = ppqTime;
+    eventQueue[queuedEventCount].message = msg;
+    eventQueue[queuedEventCount].isActive = true;
     ++queuedEventCount;
+    std::push_heap(eventQueue.begin(), eventQueue.begin() + queuedEventCount, EventComparator());
 }
 
 void MiniLAB3StepSequencerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -134,17 +137,14 @@ void MiniLAB3StepSequencerAudioProcessor::processBlock(juce::AudioBuffer<float>&
                         if (!canPlay)
                             continue;
 
-                        const int length = juce::jlimit(1, MiniLAB3Seq::kNumSteps,
-                            trackLengths[track].load(std::memory_order_acquire));
+                        const int length = juce::jlimit(1, MiniLAB3Seq::kNumSteps, trackLengths[track].load(std::memory_order_acquire));
                         const int wrappedStep = step % length;
 
                         const auto& stepData = readMatrix[track][wrappedStep];
                         if (!stepData.isActive)
                             continue;
 
-                        const float probability = stepData.probability;
-                        // Dedicated RNG instance solves global system-lock contention and enforces determinism
-                        if (playbackRandom.nextFloat() >= probability)
+                        if (playbackRandom.nextFloat() >= stepData.probability)
                             continue;
 
                         const int channel = juce::jlimit(1, 16, trackMidiChannels[track].load(std::memory_order_relaxed));
@@ -178,37 +178,32 @@ void MiniLAB3StepSequencerAudioProcessor::processBlock(juce::AudioBuffer<float>&
                 }
 
                 const double blockLengthPpq = juce::jmax(1.0e-9, blockEndPpq - ppqStart);
-                size_t writeIndex = 0;
 
-                for (size_t eventIndex = 0; eventIndex < queuedEventCount; ++eventIndex)
+                // O(log N) extraction: pull the earliest events sequentially off the top of the heap
+                while (queuedEventCount > 0)
                 {
-                    auto& event = eventQueue[eventIndex];
-                    bool keepEvent = true;
+                    const auto& event = eventQueue.front();
 
-                    if (event.ppqTime >= ppqStart && event.ppqTime < blockEndPpq)
+                    // If the top event is in the future, all remaining events are too. Break.
+                    if (event.ppqTime >= blockEndPpq)
+                        break;
+
+                    if (event.ppqTime >= ppqStart)
                     {
                         const double ratio = (event.ppqTime - ppqStart) / blockLengthPpq;
                         int sampleOffset = static_cast<int>(ratio * numSamples);
                         sampleOffset = juce::jlimit(0, juce::jmax(0, numSamples - 1), sampleOffset);
                         midiMessages.addEvent(event.message, sampleOffset);
-                        keepEvent = false;
                     }
-                    else if (event.ppqTime < ppqStart)
+                    else if (event.message.isNoteOff()) // Catch straggler note-offs
                     {
-                        if (event.message.isNoteOff())
-                            midiMessages.addEvent(event.message, 0);
-                        keepEvent = false;
+                        midiMessages.addEvent(event.message, 0);
                     }
 
-                    if (keepEvent)
-                    {
-                        if (writeIndex != eventIndex)
-                            eventQueue[writeIndex] = event;
-                        ++writeIndex;
-                    }
+                    // Pop event off the heap entirely
+                    std::pop_heap(eventQueue.begin(), eventQueue.begin() + queuedEventCount, EventComparator());
+                    --queuedEventCount;
                 }
-
-                queuedEventCount = writeIndex;
             }
             else if (lastProcessedStep != -1)
             {

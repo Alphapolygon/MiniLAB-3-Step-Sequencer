@@ -181,7 +181,8 @@ juce::String MiniLAB3StepSequencerAudioProcessor::buildFullUiStateJsonForEditor(
 
     for (int i = 0; i < MiniLAB3Seq::kNumPatterns; ++i) {
         juce::DynamicObject::Ptr patternObj = new juce::DynamicObject();
-        patternObj->setProperty("id", juce::Uuid().toString());
+        // Stable UUID populated during processor instantiation
+        patternObj->setProperty("id", patternUUIDs[i]);
         patternObj->setProperty("name", "Pattern " + juce::String(MiniLAB3Seq::kPatternLabels[i]));
         patternObj->setProperty("data", buildPatternDataVar(i));
         patterns.add(juce::var(patternObj.get()));
@@ -204,6 +205,9 @@ void MiniLAB3StepSequencerAudioProcessor::getStateInformation(juce::MemoryBlock&
 {
     auto state = apvts.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
+
+    // Explicit Schema Versioning
+    xml->setAttribute("version", 1);
 
     auto* patternsXml = xml->createNewChildElement("Patterns");
     const auto& matrix = getActiveMatrix();
@@ -257,6 +261,9 @@ void MiniLAB3StepSequencerAudioProcessor::setStateInformation(const void* data, 
         initialising.store(false, std::memory_order_release);
         return;
     }
+
+    // Future-proof version check
+    const int stateVersion = xmlState->getIntAttribute("version", 0);
 
     if (xmlState->hasTagName(apvts.state.getType())) {
         auto apvtsXml = std::make_unique<juce::XmlElement>(*xmlState);
@@ -313,10 +320,11 @@ void MiniLAB3StepSequencerAudioProcessor::setStateInformation(const void* data, 
                 }
             }
             else if (auto* matrixXml = xmlState->getChildByName("Matrix")) {
+                // V0 Migration: Old non-patterned sessions load exclusively into Pattern 0
                 int track = 0;
                 for (auto* trackElement : matrixXml->getChildIterator()) {
                     if (!trackElement->hasTagName("Track") || track >= MiniLAB3Seq::kNumTracks) continue;
-                    parseTrackXml(trackElement, 0, track); // Legacy format loads into pattern 0
+                    parseTrackXml(trackElement, 0, track);
                     ++track;
                 }
             }

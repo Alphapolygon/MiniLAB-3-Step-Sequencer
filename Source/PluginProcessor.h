@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <vector>
+#include <algorithm> // Added for std::push_heap / pop_heap
 
 #include "PluginProcessorTypes.h"
 #include "PluginProcessorHelpers.h"
@@ -55,7 +56,6 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    // Automation Parameters
     std::atomic<float>* masterVolParam = nullptr;
     std::atomic<float>* swingParam = nullptr;
     std::atomic<float>* muteParams[MiniLAB3Seq::kNumTracks] = {};
@@ -64,7 +64,6 @@ public:
     std::atomic<float>* nudgeParams[MiniLAB3Seq::kNumTracks] = {};
     std::atomic<bool> initialising{ true };
 
-    // FULLY NATIVE STATE MODEL: 3D Array [Patterns][Tracks][Steps]
     using MatrixSnapshot = StepData[MiniLAB3Seq::kNumPatterns][MiniLAB3Seq::kNumTracks][MiniLAB3Seq::kNumSteps];
     void modifySequencerState(const std::function<void(MatrixSnapshot&)>& modifier);
     const MatrixSnapshot& getActiveMatrix() const;
@@ -74,14 +73,16 @@ public:
     std::atomic<int> trackLengths[MiniLAB3Seq::kNumTracks] = {};
     juce::String instrumentNames[MiniLAB3Seq::kNumTracks];
 
+    // Stable UUIDs for React sync
+    juce::String patternUUIDs[MiniLAB3Seq::kNumPatterns];
+
     std::atomic<int> currentInstrument{ 0 };
     std::atomic<int> currentPage{ 0 };
     std::atomic<int> global16thNote{ -1 };
     std::atomic<int> activePatternIndex{ 0 };
 
-    // UI Metadata explicitly owned by the C++ Engine now
     std::atomic<int> themeIndex{ 0 };
-    std::atomic<int> footerTabIndex{ 0 }; // 0:Velocity, 1:Gate, 2:Prob, 3:Shift, 4:Swing
+    std::atomic<int> footerTabIndex{ 0 };
 
     std::atomic<double> currentBpm{ 120.0 };
     std::atomic<bool> isPlaying{ false };
@@ -103,12 +104,11 @@ private:
     std::atomic<int> activeMatrixIndex{ 0 };
     StepData sequencerMatrix[2][MiniLAB3Seq::kNumPatterns][MiniLAB3Seq::kNumTracks][MiniLAB3Seq::kNumSteps];
 
-    std::unique_ptr<juce::MidiOutput> hardwareOutput;
-    std::unique_ptr<ControllerProfile> activeController;
+    // Upgraded to shared_ptr to prevent dangling pointers when locks are quickly released
+    std::shared_ptr<juce::MidiOutput> hardwareOutput;
+    std::shared_ptr<ControllerProfile> activeController;
 
-    // Strengthened to atomic bool for compare_exchange ownership
     std::atomic<bool> isAttemptingConnection{ false };
-
     std::atomic<int> ledRefreshCountdown{ 0 };
     std::atomic<float> pendingMasterVolNormalized{ -1.0f };
     std::atomic<float> pendingSwingNormalized{ -1.0f };
@@ -122,7 +122,6 @@ private:
     juce::AbstractFifo hwFifo{ 1024 };
     std::array<HardwareMsg, 1024> hwQueue{};
 
-    // Per-instance deterministic RNG
     juce::Random playbackRandom;
 
     void scheduleMidiEvent(double ppqTime, const juce::MidiMessage& msg);

@@ -202,8 +202,8 @@ void MiniLAB3StepSequencerAudioProcessor::openHardwareOutput()
     // Explicitly runs on the Message Thread, natively preventing JUCE assertions
     auto devices = juce::MidiOutput::getAvailableDevices();
 
-    std::unique_ptr<juce::MidiOutput> newOutput;
-    std::unique_ptr<ControllerProfile> newProfile;
+    std::shared_ptr<juce::MidiOutput> newOutput;
+    std::shared_ptr<ControllerProfile> newProfile;
 
     std::vector<std::unique_ptr<ControllerProfile>> profiles;
     profiles.push_back(std::make_unique<ArturiaMiniLab3Profile>());
@@ -217,9 +217,10 @@ void MiniLAB3StepSequencerAudioProcessor::openHardwareOutput()
                 && !device.name.containsIgnoreCase("DIN")
                 && !device.name.containsIgnoreCase("MCU"))
             {
-                newOutput = juce::MidiOutput::openDevice(device.identifier);
-                if (newOutput != nullptr)
+                auto openedDevice = juce::MidiOutput::openDevice(device.identifier);
+                if (openedDevice != nullptr)
                 {
+                    newOutput = std::move(openedDevice);
                     newProfile = std::move(profile);
                     newProfile->initializeHardware(newOutput.get());
                 }
@@ -243,10 +244,22 @@ void MiniLAB3StepSequencerAudioProcessor::openHardwareOutput()
 
 void MiniLAB3StepSequencerAudioProcessor::resetHardwareState()
 {
-    const juce::SpinLock::ScopedLockType lock(hardwareLock);
-    if (hardwareOutput != nullptr && activeController != nullptr)
-        activeController->resetHardware(hardwareOutput.get());
-    juce::Thread::sleep(30);
+    // Take a rapid local copy of the shared_ptr, then release lock immediately
+    std::shared_ptr<juce::MidiOutput> localOutput;
+    std::shared_ptr<ControllerProfile> localProfile;
+    {
+        const juce::SpinLock::ScopedLockType lock(hardwareLock);
+        localOutput = hardwareOutput;
+        localProfile = activeController;
+    }
+
+    if (localOutput && localProfile)
+    {
+        localProfile->resetHardware(localOutput.get());
+        // Safe to sleep because lock is already released, 
+        // and shared_ptr keeps the objects alive for us!
+        juce::Thread::sleep(30);
+    }
 }
 
 void MiniLAB3StepSequencerAudioProcessor::requestLedRefresh()
@@ -261,6 +274,7 @@ void MiniLAB3StepSequencerAudioProcessor::timerCallback()
     if (initialising.load(std::memory_order_acquire))
         return;
 
+    // 1. Process deferred lock-free Hardware messages on the safe Message Thread
     auto readHandle = hwFifo.read(hwFifo.getNumReady());
     auto processQueue = [&](int start, int size) {
         juce::MidiBuffer dummyBuffer;
@@ -272,6 +286,7 @@ void MiniLAB3StepSequencerAudioProcessor::timerCallback()
     processQueue(readHandle.startIndex1, readHandle.blockSize1);
     processQueue(readHandle.startIndex2, readHandle.blockSize2);
 
+    // 2. Hardware connection logic
     if (hardwareOutput == nullptr)
     {
         static int connectionRetry = 0;
@@ -296,9 +311,16 @@ void MiniLAB3StepSequencerAudioProcessor::timerCallback()
 
 void MiniLAB3StepSequencerAudioProcessor::updateHardwareLEDs(bool forceOverwrite)
 {
-    const juce::SpinLock::ScopedLockType lock(hardwareLock);
-    if (hardwareOutput != nullptr && activeController != nullptr)
-        activeController->updateLEDs(hardwareOutput.get(), *this, forceOverwrite);
+    std::shared_ptr<juce::MidiOutput> localOutput;
+    std::shared_ptr<ControllerProfile> localProfile;
+    {
+        const juce::SpinLock::ScopedLockType lock(hardwareLock);
+        localOutput = hardwareOutput;
+        localProfile = activeController;
+    }
+
+    if (localOutput && localProfile)
+        localProfile->updateLEDs(localOutput.get(), *this, forceOverwrite);
 }
 
 void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessage& msg, juce::MidiBuffer&)
@@ -306,19 +328,20 @@ void MiniLAB3StepSequencerAudioProcessor::handleMidiInput(const juce::MidiMessag
     if (initialising.load(std::memory_order_acquire))
         return;
 
-    bool wasHandledByController = false;
+    std::shared_ptr<ControllerProfile> localProfile;
     {
         const juce::SpinLock::ScopedTryLockType lock(hardwareLock);
-        if (lock.isLocked() && activeController != nullptr)
-        {
-            wasHandledByController = activeController->handleMidiInput(msg, *this);
-        }
+        if (lock.isLocked())
+            localProfile = activeController;
     }
 
-    if (wasHandledByController)
+    if (localProfile)
     {
-        requestLedRefresh();
-        markUiStateDirty();
+        if (localProfile->handleMidiInput(msg, *this))
+        {
+            requestLedRefresh();
+            markUiStateDirty();
+        }
     }
 
     if (msg.isController())
