@@ -15,15 +15,15 @@ MiniLAB3StepSequencerAudioProcessorEditor::MiniLAB3StepSequencerAudioProcessorEd
             .withUserDataFolder(
                 juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                 .getChildFile("MiniLAB3Sequencer")
-                .getChildFile("WebView2CacheV3"))) // BUST THE CACHE!
+                .getChildFile("WebView2CacheV3")))
         .withNativeFunction("updateCPlusPlusState",
             [this](const auto& args, auto completion)
             {
                 if (!args.isEmpty())
                 {
-                    // Dispatch APVTS modifications to the main thread!
-                    juce::MessageManager::callAsync([this, stateVar = args[0]]() {
-                        audioProcessor.setStepDataFromVar(stateVar);
+                    juce::MessageManager::callAsync([this, stateVar = args[0]]()
+                        {
+                            audioProcessor.setStepDataFromVar(stateVar);
                         });
                 }
                 completion(juce::var());
@@ -33,33 +33,28 @@ MiniLAB3StepSequencerAudioProcessorEditor::MiniLAB3StepSequencerAudioProcessorEd
             {
                 if (!args.isEmpty())
                 {
-                    // Safely catch the stringified React payload
-                    if (args[0].isString())
-                        audioProcessor.fullUiStateJson = args[0].toString();
-                    else
-                        audioProcessor.fullUiStateJson = juce::JSON::toString(args[0]);
+                    juce::MessageManager::callAsync([this, stateVar = args[0]]()
+                        {
+                            // FIX: Feed the full React snapshot directly into our native 3D array model!
+                            audioProcessor.setStepDataFromVar(stateVar);
+                        });
                 }
                 completion(juce::var());
-            })  
+            })
         .withNativeFunction("requestInitialState",
             [this](const auto&, auto completion)
             {
-                juce::DynamicObject::Ptr root = new juce::DynamicObject();
-                root->setProperty("selectedTrack", audioProcessor.currentInstrument.load());
-                root->setProperty("currentPage", audioProcessor.currentPage.load());
-                root->setProperty("activeIdx", audioProcessor.activePatternIndex.load());
-                root->setProperty("themeIdx", 0);
-                root->setProperty("footerTab", "Velocity");
-                completion(juce::var(root.get()));
+                const auto initialState = juce::JSON::parse(audioProcessor.buildFullUiStateJsonForEditor());
+                completion(initialState.isVoid() ? audioProcessor.buildCurrentPatternStateVar() : initialState);
             })
         .withNativeFunction("uiReadyForEngineState",
             [this](const auto&, auto completion)
             {
-                // Dispatch MIDI initialization to the main thread!
-                juce::MessageManager::callAsync([this]() {
-                    isUiConnected.store(true);
-                    audioProcessor.requestUiStateBroadcast();
-                    audioProcessor.openHardwareOutput();
+                juce::MessageManager::callAsync([this]()
+                    {
+                        isUiConnected.store(true, std::memory_order_release);
+                        audioProcessor.requestUiStateBroadcast();
+                        audioProcessor.openHardwareOutput();
                     });
                 completion(juce::var());
             })
@@ -106,8 +101,8 @@ void MiniLAB3StepSequencerAudioProcessorEditor::resized()
 
 void MiniLAB3StepSequencerAudioProcessorEditor::timerCallback()
 {
-    // DO NOT emit events until React has secured the native functions!
-    if (!isUiConnected.load()) return;
+    if (!isUiConnected.load(std::memory_order_acquire))
+        return;
 
     pushPlaybackStateIfChanged();
     pushEngineStateIfChanged();
@@ -115,9 +110,9 @@ void MiniLAB3StepSequencerAudioProcessorEditor::timerCallback()
 
 void MiniLAB3StepSequencerAudioProcessorEditor::pushPlaybackStateIfChanged()
 {
-    const double currentBpm = audioProcessor.currentBpm.load();
-    const bool isPlaying = audioProcessor.isPlaying.load();
-    const int absoluteStep = audioProcessor.global16thNote.load();
+    const double currentBpm = audioProcessor.currentBpm.load(std::memory_order_acquire);
+    const bool isPlaying = audioProcessor.isPlaying.load(std::memory_order_acquire);
+    const int absoluteStep = audioProcessor.global16thNote.load(std::memory_order_acquire);
     const int currentGridStep = (absoluteStep >= 0) ? (absoluteStep % 32) : -1;
 
     if (currentBpm != lastBpm || isPlaying != lastIsPlaying || currentGridStep != lastStep)
@@ -140,6 +135,9 @@ void MiniLAB3StepSequencerAudioProcessorEditor::pushEngineStateIfChanged()
     if (uiVersion != lastUiStateVersion)
     {
         lastUiStateVersion = uiVersion;
-        webComponent.emitEventIfBrowserIsVisible("engineState", audioProcessor.buildCurrentPatternStateVar());
+        const auto editorState = juce::JSON::parse(audioProcessor.buildFullUiStateJsonForEditor());
+        webComponent.emitEventIfBrowserIsVisible(
+            "engineState",
+            editorState.isVoid() ? audioProcessor.buildCurrentPatternStateVar() : editorState);
     }
 }
